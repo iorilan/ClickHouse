@@ -136,9 +136,16 @@ auto getSslContextProvider(const Poco::Util::AbstractConfiguration & config, std
     if (config.has(cipher_list_property))
         params.cipherList = config.getString(cipher_list_property);
 
+    String cipher_suites_property = fmt::format("openSSL.{}.cipherSuites", key);
+    params.cipherSuites = config.getString(cipher_suites_property, Poco::Net::SSLManager::VAL_CIPHER_SUITES);
+
     String dh_params_file_property = fmt::format("openSSL.{}.dhParamsFile", key);
     if (config.has(dh_params_file_property))
         params.dhParamsFile = config.getString(dh_params_file_property);
+
+    String ecdh_curve_property = fmt::format("openSSL.{}.ecdhCurve", key);
+    if (config.has(ecdh_curve_property))
+        params.ecdhCurve = config.getString(ecdh_curve_property);
 
     std::string disabled_protocols_list = config.getString(fmt::format("openSSL.{}.disableProtocols", key), "");
     Poco::StringTokenizer dp_tok(disabled_protocols_list, ";,", Poco::StringTokenizer::TOK_TRIM | Poco::StringTokenizer::TOK_IGNORE_EMPTY);
@@ -155,6 +162,8 @@ auto getSslContextProvider(const Poco::Util::AbstractConfiguration & config, std
             disabled_protocols |= Poco::Net::Context::PROTO_TLSV1_1;
         else if (token == "tlsv1_2")
             disabled_protocols |= Poco::Net::Context::PROTO_TLSV1_2;
+        else if (token == "tlsv1_3")
+            disabled_protocols |= Poco::Net::Context::PROTO_TLSV1_3;
     }
 
     auto prefer_server_cypher = config.getBool(fmt::format("openSSL.{}.preferServerCiphers", key), false);
