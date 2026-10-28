@@ -88,7 +88,7 @@ def execute_query_native(node, query, config):
 def test_default():
     with pytest.raises(Exception) as err:
         execute_query_native(instance, "SELECT 1", config_default)
-    assert "certificate verify failed" in str(err.value)
+    assert "certificate verify failed" in str(err.value).lower().replace("_", " ")
 
 
 def test_accept():
@@ -109,7 +109,7 @@ def test_connection_accept():
 def test_strict_reject():
     with pytest.raises(Exception) as err:
         execute_query_native(node1, "SELECT 1", "<clickhouse></clickhouse>")
-    assert "certificate verify failed" in str(err.value)
+    assert "certificate verify failed" in str(err.value).lower().replace("_", " ")
 
 
 def test_strict_reject_with_config():
@@ -120,7 +120,7 @@ def test_strict_reject_with_config():
     # - "Connection reset by peer": close() executes before TCP layer transmits Alert from send buffer
     # Race condition: send() is async (returns after copying to kernel buffer), close() may execute
     # before TCP layer actually sends the Alert packet, causing RST to be sent instead
-    assert "alert certificate required" in str(err.value) or "Connection reset by peer" in str(err.value)
+    assert "alert certificate required" in str(err.value).lower().replace("_", " ") or "Connection reset by peer" in str(err.value)
 
 
 def test_strict_connection_reject():
@@ -130,4 +130,4 @@ def test_strict_connection_reject():
             "SELECT 1",
             config_connection_accept.format(ip_address=f"{instance.ip_address}"),
         )
-    assert "certificate verify failed" in str(err.value)
+    assert "certificate verify failed" in str(err.value).lower().replace("_", " ")
