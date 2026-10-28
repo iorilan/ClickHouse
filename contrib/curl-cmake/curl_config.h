@@ -62,6 +62,13 @@
 #define USE_RESOLV_ARES
 #define CURL_ENABLE_NTLM
 
+/**
+ * evp_API_shim.h includes <openssl/evp.h> which transitively includes <stdbool.h>.
+ * This defines `bool` as `_Bool`, but this does not define `HAVE_BOOL_T`.
+ * Let's define it manually.
+ */
+#define HAVE_BOOL_T
+
 #ifdef __illumos__
 #define HAVE_POSIX_STRERROR_R 1
 #define HAVE_STRERROR_R 1

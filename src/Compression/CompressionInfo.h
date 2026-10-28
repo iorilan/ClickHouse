@@ -57,6 +57,13 @@ enum class CompressionMethodByte : uint8_t
     GCD             = 0x9a,
     /// ZSTD_QPL        = 0x9b, /// Removed, don't reuse for another codec
     ALP             = 0x9c,
+
+#if defined(FIPS_CLICKHOUSE) && FIPS_CLICKHOUSE
+// Ciphers are NOT compatible, and we are eliminating even slightest chance of mixing those up while loading encrypted data
+// since erroring out early is better than loading data incorrectly.
+    AES_128_GCM     = 0xfa,
+    AES_256_GCM     = 0xfb,
+#endif
 };
 
 }

@@ -10,6 +10,205 @@ if(NOT ENABLE_SSL)
   return()
 endif()
 
+if(FIPS_CLICKHOUSE)
+
+set(AWSLC_BUILD_DIR "${CMAKE_BINARY_DIR}/awslc-build")
+set(AWSLC_BINARIES_DIR "${AWSLC_BUILD_DIR}/output")
+
+message("Will build AWS-LC FIPS 2.0.0 in FIPS mode according to security policy #4816.")
+# build AWS-LC in FIPS mode accoring to the Security Policy:
+# https://csrc.nist.gov/CSRC/media/projects/cryptographic-module-validation-program/documents/security-policies/140sp4816.pdf
+
+# Build driver - the script that triggers the build and pulls out results from docker container
+file(WRITE ${AWSLC_BUILD_DIR}/build_awclc_fips.sh
+"#!/bin/bash
+set -ex
+
+readonly OUTPUT_DIR=$1
+readonly DOCKERFILE_PATH=$2
+shift 2
+
+docker build . -t awslc-builder -f $DOCKERFILE_PATH
+readonly id=$(docker create awslc-builder)
+
+docker start -a $id #| tr -dc \\\\x0-\\\\x9
+
+mkdir -p $OUTPUT_DIR
+readonly lib_dir='/aws-lc-AWS-LC-FIPS-2.0.0'
+# Copy build artifacts
+docker cp $id:$lib_dir/build/ssl/libssl.a $OUTPUT_DIR
+docker cp $id:$lib_dir/build/crypto/libcrypto.a $OUTPUT_DIR
+docker cp $id:$lib_dir/include $OUTPUT_DIR
+
+# Extract pre-built test harness libraries (symbol-localized, with libstdc++ baked in)
+docker cp $id:/harness-output/libawslc_shim.a $OUTPUT_DIR
+docker cp $id:/harness-output/libawslc_handshaker.a $OUTPUT_DIR
+docker cp $id:/harness-output/libawslc_acvp_server.a $OUTPUT_DIR
+
+docker rm $id"
+)
+
+# Verification program compiled inside the Docker build to confirm AWS-LC version
+file(WRITE ${AWSLC_BUILD_DIR}/check_version.c
+[=[
+#include <stdio.h>
+#include <string.h>
+const char* awslc_version_string(void);
+int expect(const char * expected, const char * actual) {
+    if (strcmp(expected, actual) == 0)
+        return 0;
+    printf("expected %s but got %s", expected, actual);
+    return 1;
+}
+int main(int argc, char * argv[]) {
+    int result = 0;
+    if (argc > 1)
+        result |= expect((const char*)argv[1], awslc_version_string());
+    return result;
+}
+]=])
+
+# patch submodules (which are not in Altinity's fork) to accommodate for differences between OpenSSL and AWS-LC.
+# First we rollback any changes into the submodules, to allow clean patching
+# (in case of multiple rebuilds on dev machine)
+# Then the patch is applied (on clean submodules).
+execute_process(
+  WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+  COMMAND bash -c "git submodule foreach git reset --hard HEAD && git submodule foreach git restore ."
+)
+execute_process(
+  WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+  COMMAND bash -c "patch --directory=./ --strip=1 -i ./contrib/openssl-cmake/fips_submodules_26.3.patch"
+)
+
+message("Creating directory for AWS-LC binaries and includes in ${AWSLC_BINARIES_DIR}")
+execute_process(COMMAND ${CMAKE_COMMAND} -E make_directory "${AWSLC_BINARIES_DIR}/include")
+
+add_custom_target(build-awslc
+    COMMENT "Build AWS-LC in FIPS mode with docker"
+    DEPENDS
+        ${AWSLC_BINARIES_DIR}/libssl.a
+        ${AWSLC_BINARIES_DIR}/libcrypto.a
+        ${AWSLC_BINARIES_DIR}/libawslc_shim.a
+        ${AWSLC_BINARIES_DIR}/libawslc_handshaker.a
+        ${AWSLC_BINARIES_DIR}/libawslc_acvp_server.a
+)
+
+if(ARCH_AARCH64)
+    set(DOCKERFILE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/Dockerfile.aarch64)
+else()
+    set(DOCKERFILE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/Dockerfile)
+endif()
+
+add_custom_command(
+    OUTPUT
+        "${AWSLC_BUILD_DIR}/output/libssl.a"
+        "${AWSLC_BUILD_DIR}/output/libcrypto.a"
+        "${AWSLC_BUILD_DIR}/output/libawslc_shim.a"
+        "${AWSLC_BUILD_DIR}/output/libawslc_handshaker.a"
+        "${AWSLC_BUILD_DIR}/output/libawslc_acvp_server.a"
+    COMMENT "Building AWS-LC in FIPS mode using docker"
+    # Copy test harness build inputs into the Docker context directory
+    COMMAND ${CMAKE_COMMAND} -E copy
+        ${ClickHouse_SOURCE_DIR}/programs/ssl-common/posix_spawn_2.c
+        ${AWSLC_BUILD_DIR}/posix_spawn_2.c
+    COMMAND ${CMAKE_COMMAND} -E copy
+        ${ClickHouse_SOURCE_DIR}/programs/ssl-common/glibc_compat.c
+        ${AWSLC_BUILD_DIR}/glibc_compat.c
+    COMMAND ${CMAKE_COMMAND} -E copy
+        ${CMAKE_CURRENT_SOURCE_DIR}/build_test_harness.sh
+        ${AWSLC_BUILD_DIR}/build_test_harness.sh
+    COMMAND bash -c "chmod +x ${AWSLC_BUILD_DIR}/build_awclc_fips.sh"
+    COMMAND bash -c "${AWSLC_BUILD_DIR}/build_awclc_fips.sh ${AWSLC_BINARIES_DIR} ${DOCKERFILE_PATH}"
+    WORKING_DIRECTORY ${AWSLC_BUILD_DIR}
+    USES_TERMINAL # To stream output
+    DEPENDS
+        ${AWSLC_BUILD_DIR}/build_awclc_fips.sh
+        ${AWSLC_BUILD_DIR}/check_version.c
+        ${DOCKERFILE_PATH}
+        ${ClickHouse_SOURCE_DIR}/programs/ssl-common/posix_spawn_2.c
+        ${ClickHouse_SOURCE_DIR}/programs/ssl-common/glibc_compat.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/build_test_harness.sh
+)
+
+add_library(crypto UNKNOWN IMPORTED GLOBAL)
+add_dependencies(crypto build-awslc)
+set_target_properties(crypto PROPERTIES
+    IMPORTED_LINK_INTERFACE_LANGUAGES "CXX"
+    IMPORTED_LOCATION "${AWSLC_BINARIES_DIR}/libcrypto.a"
+    INTERFACE_INCLUDE_DIRECTORIES "${AWSLC_BINARIES_DIR}/include"
+)
+
+add_library(ssl UNKNOWN IMPORTED GLOBAL)
+add_dependencies(ssl crypto)
+set_target_properties(ssl PROPERTIES
+    IMPORTED_LINK_INTERFACE_LANGUAGES "CXX"
+    IMPORTED_LOCATION "${AWSLC_BINARIES_DIR}/libssl.a"
+    INTERFACE_INCLUDE_DIRECTORIES "${AWSLC_BINARIES_DIR}/include"
+)
+
+# API shim include directory
+target_include_directories(ssl INTERFACE
+  "${CMAKE_CURRENT_LIST_DIR}/include"
+)
+
+# Way to inject evp_API_shim.h inclusion to whatever component depends on ssl library.
+target_compile_options(ssl INTERFACE
+  $<$<COMPILE_LANG_AND_ID:C,CXX,GNU,Clang,AppleClang>:-includeevp_API_shim.h>
+)
+
+target_compile_options(ssl INTERFACE
+  -DOPENSSL_IS_BORINGSSL=1
+  -DFIPS_CLICKHOUSE=1
+)
+
+# This is taken from the later in the file when FIPS_CLICKHOUSE is not defined.
+# Without it, the build fails due to using API deprecated in C++23
+target_compile_options(global-group INTERFACE "-Wno-deprecated-declarations")
+target_compile_options(global-group INTERFACE "-Wno-poison-system-directories")
+
+# ── Test harness IMPORTED libraries ──────────────────────────────────────────
+# These archives are built inside Docker (build_test_harness.sh), partially
+# linked with libstdc++ via `ld -r`, and symbol-localized so only the entry
+# point is globally visible.  No --allow-multiple-definition needed.
+
+add_library(awslc_shim STATIC IMPORTED GLOBAL)
+add_dependencies(awslc_shim build-awslc)
+set_target_properties(awslc_shim PROPERTIES
+    IMPORTED_LOCATION "${AWSLC_BINARIES_DIR}/libawslc_shim.a")
+
+add_library(awslc_handshaker STATIC IMPORTED GLOBAL)
+add_dependencies(awslc_handshaker build-awslc)
+set_target_properties(awslc_handshaker PROPERTIES
+    IMPORTED_LOCATION "${AWSLC_BINARIES_DIR}/libawslc_handshaker.a")
+
+add_library(awslc_acvp_server STATIC IMPORTED GLOBAL)
+add_dependencies(awslc_acvp_server build-awslc)
+set_target_properties(awslc_acvp_server PROPERTIES
+    IMPORTED_LOCATION "${AWSLC_BINARIES_DIR}/libawslc_acvp_server.a")
+
+# ── Test harness program libraries ───────────────────────────────────────────
+# Linked into the main clickhouse binary via clickhouse_program_install()
+# in programs/CMakeLists.txt.  The entry-point .cpp files stay in programs/.
+
+add_library(clickhouse-ssl-shim-lib
+    ${ClickHouse_SOURCE_DIR}/programs/ssl-shim/SslShim.cpp)
+target_link_libraries(clickhouse-ssl-shim-lib PRIVATE awslc_shim ssl crypto)
+add_dependencies(clickhouse-ssl-shim-lib build-awslc)
+
+add_library(clickhouse-ssl-handshaker-lib
+    ${ClickHouse_SOURCE_DIR}/programs/ssl-handshaker/SslHandshaker.cpp)
+target_link_libraries(clickhouse-ssl-handshaker-lib PRIVATE awslc_handshaker ssl crypto)
+add_dependencies(clickhouse-ssl-handshaker-lib build-awslc)
+
+add_library(clickhouse-acvp-server-lib
+    ${ClickHouse_SOURCE_DIR}/programs/acvp-server/AcvpServer.cpp)
+target_link_libraries(clickhouse-acvp-server-lib PRIVATE awslc_acvp_server crypto)
+add_dependencies(clickhouse-acvp-server-lib build-awslc)
+
+else() # FIPS_CLICKHOUSE
+
+
 # Below build description was generated from these steps:
 # - Checkout OpenSSL in the desired version (e.g. 3.2)
 # - Take a brief look (but not too long to save your mental sanity) at the supported build options (*)
@@ -1427,6 +1626,8 @@ target_include_directories(ssl
     PRIVATE ${OPENSSL_SOURCE_DIR})
 
 target_link_libraries(ssl crypto)
+
+endif() # FIPS_CLICKHOUSE
 
 add_library(OpenSSL::Crypto ALIAS crypto)
 add_library(OpenSSL::SSL ALIAS ssl)
