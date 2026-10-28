@@ -68,6 +68,19 @@ int main(int argc, char * argv[]) {
 }
 ]=])
 
+# patch submodules (which are not in Altinity's fork) to accommodate for differences between OpenSSL and AWS-LC.
+# First we rollback any changes into the submodules, to allow clean patching
+# (in case of multiple rebuilds on dev machine)
+# Then the patch is applied (on clean submodules).
+execute_process(
+  WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+  COMMAND bash -c "git submodule foreach git reset --hard HEAD && git submodule foreach git restore ."
+)
+execute_process(
+  WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+  COMMAND bash -c "patch --directory=./ --strip=1 -i ./contrib/openssl-cmake/fips_submodules_26.3.patch"
+)
+
 message("Creating directory for AWS-LC binaries and includes in ${AWSLC_BINARIES_DIR}")
 execute_process(COMMAND ${CMAKE_COMMAND} -E make_directory "${AWSLC_BINARIES_DIR}/include")
 
