@@ -320,6 +320,7 @@ class BuildTypes(metaclass=MetaClasses.WithIter):
     AMD_DEBUG = "amd_debug"
     AMD_RELEASE = "amd_release"
     AMD_BINARY = "amd_binary"
+    AMD_FIPS = "amd_fips"
     AMD_ASAN = "amd_asan"
     AMD_TSAN = "amd_tsan"
     AMD_MSAN = "amd_msan"
@@ -408,6 +409,7 @@ class ArtifactNames:
     CH_AMD_MSAN = "CH_AMD_MSAN"
     CH_AMD_UBSAN = "CH_AMD_UBSAN"
     CH_AMD_BINARY = "CH_AMD_BINARY"
+    CH_AMD_FIPS = "CH_AMD_FIPS_BIN"
     CH_ARM_RELEASE = "CH_ARM_RELEASE"
     CH_ARM_RELEASE_STRIPPED = "CH_ARM_RELEASE_STRIPPED"
     CH_ARM_ASAN = "CH_ARM_ASAN"
@@ -560,6 +562,7 @@ class ArtifactConfigs:
             ArtifactNames.CH_PPC64LE,
             ArtifactNames.CH_AMD_COMPAT,
             ArtifactNames.CH_AMD_MUSL,
+            ArtifactNames.CH_AMD_FIPS,
             ArtifactNames.CH_RISCV64,
             ArtifactNames.CH_S390X,
             ArtifactNames.CH_LOONGARCH64,

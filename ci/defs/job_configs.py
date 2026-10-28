@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 from praktika import Job
 from praktika.utils import Utils
 
@@ -23,6 +25,11 @@ BINARY_DOCKER_COMMAND = (
     f"+--memory-reservation={Utils.physical_memory() * 9 // 10}"
     f"+--volume=.:/ClickHouse"
     '+--env=AWS_ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID"+--env=AWS_SECRET_ACCESS_KEY="$AWS_SECRET_ACCESS_KEY"'
+)
+
+# The FIPS build starts a nested container for AWS-LC, so it needs the Docker socket
+FIPS_BINARY_DOCKER_COMMAND = (
+    BINARY_DOCKER_COMMAND + "+--volume=/var/run/docker.sock:/var/run/docker.sock"
 )
 
 if Utils.is_arm():
@@ -429,6 +436,15 @@ class JobConfigs:
             parameter=BuildTypes.ARM_FUZZERS,
             provides=[],
             runs_on=RunnerLabels.ARM_LARGE,
+        ),
+    )
+    fips_build_jobs = replace(
+        common_build_job_config, run_in_docker=FIPS_BINARY_DOCKER_COMMAND
+    ).parametrize(
+        Job.ParamSet(
+            parameter=BuildTypes.AMD_FIPS,
+            provides=[ArtifactNames.CH_AMD_FIPS],
+            runs_on=RunnerLabels.BUILDER_AMD,
         ),
     )
     install_check_jobs = Job.Config(
