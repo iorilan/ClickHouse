@@ -491,6 +491,7 @@ target_link_libraries(
         ch_contrib::lz4
         Poco::JSON
     PUBLIC
+        boost::iostreams
         boost::system
         clickhouse_compression
         clickhouse_common_io

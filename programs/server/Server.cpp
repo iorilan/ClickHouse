@@ -148,6 +148,7 @@
 #    include <Common/LibSSHInitializer.h>
 #    include <Common/LibSSHLogger.h>
 #    include <Server/ACME/Client.h>
+#    include <openssl/crypto.h>
 #endif
 
 #if USE_GRPC
@@ -724,6 +725,14 @@ void Server::initialize(Poco::Util::Application & self)
         Poco::Environment::osName(),
         Poco::Environment::osVersion(),
         Poco::Environment::osArchitecture());
+
+#if USE_SSL && defined(FIPS_CLICKHOUSE)
+    if (FIPS_mode())
+    {
+        LOG_INFO(&logger(), "Starting in FIPS mode, KAT test result: {}, Integrity check: {}",
+                BORINGSSL_self_test(), BORINGSSL_integrity_test());
+    }
+#endif
 }
 
 std::string Server::getDefaultCorePath() const

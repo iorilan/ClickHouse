@@ -117,6 +117,16 @@ int mainEntryClickHouseChdig(int argc, char ** argv)
 }
 #endif
 
+#if ENABLE_CLICKHOUSE_SSL_SHIM
+int mainEntryClickHouseSslShim(int argc, char ** argv);
+#endif
+#if ENABLE_CLICKHOUSE_SSL_HANDSHAKER
+int mainEntryClickHouseSslHandshaker(int argc, char ** argv);
+#endif
+#if ENABLE_CLICKHOUSE_ACVP_SERVER
+int mainEntryClickHouseAcvpServer(int argc, char ** argv);
+#endif
+
 // install
 int mainEntryClickHouseInstall(int argc, char ** argv);
 int mainEntryClickHouseStart(int argc, char ** argv);
@@ -174,6 +184,15 @@ std::pair<std::string_view, MainFunc> clickhouse_applications[] =
 #if USE_NURAFT
     {"keeper-data-dumper", mainEntryClickHouseKeeperDataDumper},
     {"keeper-utils", mainEntryClickHouseKeeperUtils},
+#endif
+#if ENABLE_CLICKHOUSE_SSL_SHIM
+    {"ssl-shim", mainEntryClickHouseSslShim},
+#endif
+#if ENABLE_CLICKHOUSE_SSL_HANDSHAKER
+    {"ssl-handshaker", mainEntryClickHouseSslHandshaker},
+#endif
+#if ENABLE_CLICKHOUSE_ACVP_SERVER
+    {"acvp-server", mainEntryClickHouseAcvpServer},
 #endif
     // install
     {"install", mainEntryClickHouseInstall},
